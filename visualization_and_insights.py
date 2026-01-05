@@ -13,6 +13,10 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # 한글 폰트 설정
+import matplotlib.font_manager as fm
+
+# 나눔고딕 폰트 설정
+plt.rcParams['font.family'] = 'NanumGothic'
 plt.rcParams['axes.unicode_minus'] = False
 
 print("=" * 80)
