@@ -15,9 +15,15 @@ warnings.filterwarnings('ignore')
 # 한글 폰트 설정
 import matplotlib.font_manager as fm
 
-# 나눔고딕 폰트 설정
-plt.rcParams['font.family'] = 'NanumGothic'
+# 나눔고딕 폰트 경로 직접 지정
+font_path = '/usr/share/fonts/truetype/nanum/NanumGothic.ttf'
+font_prop = fm.FontProperties(fname=font_path)
+plt.rcParams['font.family'] = font_prop.get_name()
+plt.rcParams['font.sans-serif'] = ['NanumGothic']
 plt.rcParams['axes.unicode_minus'] = False
+
+# 폰트 캐시 재생성
+fm._load_fontmanager(try_read_cache=False)
 
 print("=" * 80)
 print("거래처 수요 예측 시각화 및 인사이트")
