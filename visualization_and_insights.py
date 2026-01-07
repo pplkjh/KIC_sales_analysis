@@ -68,11 +68,20 @@ cycle_df['주기분류'] = cycle_df['평균주기(일)'].apply(classify_cycle)
 plt.figure(figsize=(12, 6))
 cycle_counts = cycle_df['주기분류'].value_counts()
 colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DFE6E9']
-plt.bar(range(len(cycle_counts)), cycle_counts.values, color=colors)
-plt.xlabel('Sales Cycle Category', fontsize=12)
-plt.ylabel('Number of Customers', fontsize=12)
-plt.title('Distribution of Customers by Sales Cycle', fontsize=14, fontweight='bold')
+bars = plt.bar(range(len(cycle_counts)), cycle_counts.values, color=colors)
+
+# 막대 위에 수치 표시
+for i, bar in enumerate(bars):
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height,
+            f'{int(height)}개',
+            ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+plt.xlabel('판매 주기 분류', fontsize=12)
+plt.ylabel('거래처 수', fontsize=12)
+plt.title('판매 주기별 거래처 분포', fontsize=14, fontweight='bold')
 plt.xticks(range(len(cycle_counts)), cycle_counts.index, rotation=45)
+plt.grid(True, alpha=0.3, axis='y')
 plt.tight_layout()
 plt.savefig('./visualizations/01_sales_cycle_distribution.png', dpi=300, bbox_inches='tight')
 print("저장: 01_sales_cycle_distribution.png")
