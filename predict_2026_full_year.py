@@ -85,6 +85,8 @@ def predict_all_orders_2026(customer_name, df, cycle_info):
                 predicted_orders.append({
                     '예상주문일': next_order_date,
                     '거래처명': customer_name,
+                    '최근거래일': last_order_date,
+                    '평균주기(일)': avg_cycle,
                     '품목': item,
                     '예상수량(kg)': row['평균수량'],
                     '예상금액': row['평균금액'],
@@ -138,14 +140,17 @@ if len(pred_2026_df) > 0:
     print("\n[2] 결과 저장")
 
     # 날짜별 품목별 상세 예측
-    output_df = pred_2026_df[['예상주문일', '연', '월', '일', '요일', '거래처명',
+    output_df = pred_2026_df[['예상주문일', '연', '월', '일', '요일', '거래처명', '최근거래일', '평균주기(일)',
                                '품목', '예상수량(kg)', '예상금액', '품목거래빈도']].copy()
     output_df.to_csv('./2026_order_predictions_detailed.csv', index=False, encoding='utf-8-sig')
     print(f"2026년 전체 상세 예측 저장: 2026_order_predictions_detailed.csv")
     print(f"  - 총 {len(output_df)}건의 품목별 예상 주문")
+    print(f"  - 최근거래일, 평균주기(일) 정보 포함")
 
     # 날짜별 거래처별 요약 (같은 날짜, 같은 거래처의 품목들을 그룹화)
     date_customer_summary = pred_2026_df.groupby(['예상주문일', '거래처명']).agg({
+        '최근거래일': 'first',
+        '평균주기(일)': 'first',
         '품목': lambda x: ', '.join(x.astype(str).head(3).tolist()) + (f' 외 {len(x)-3}개' if len(x) > 3 else ''),
         '예상수량(kg)': 'sum',
         '예상금액': 'sum'
@@ -154,12 +159,13 @@ if len(pred_2026_df) > 0:
     date_customer_summary['연'] = date_customer_summary['예상주문일'].dt.year
     date_customer_summary['월'] = date_customer_summary['예상주문일'].dt.month
     date_customer_summary['일'] = date_customer_summary['예상주문일'].dt.day
-    date_customer_summary = date_customer_summary[['예상주문일', '연', '월', '일', '거래처명',
+    date_customer_summary = date_customer_summary[['예상주문일', '연', '월', '일', '거래처명', '최근거래일', '평균주기(일)',
                                                      '품목', '예상수량(kg)', '예상금액']]
 
     date_customer_summary.to_csv('./2026_order_predictions_by_customer.csv', index=False, encoding='utf-8-sig')
     print(f"거래처별 요약 저장: 2026_order_predictions_by_customer.csv")
     print(f"  - 총 {len(date_customer_summary)}건의 예상 주문")
+    print(f"  - 최근거래일, 평균주기(일) 정보 포함")
 
     # 월별 요약
     monthly_summary = pred_2026_df.groupby('월').agg({
