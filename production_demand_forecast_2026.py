@@ -153,13 +153,191 @@ print(f"  - 불규칙: {sum(1 for v in forecast_targets.values() if v['거래유
 # ========================================
 print("\n[4단계] 2026년 예측 생성")
 
+def detect_recurring_pattern(order_dates):
+    """반복 패턴 감지"""
+    if len(order_dates) < 3:
+        return None
+
+    # 월별 발주일 분석
+    days_of_month = [d.day for d in order_dates]
+
+    # 패턴 1: 매월 초 (1~10일)
+    early_month = sum(1 for d in days_of_month if 1 <= d <= 10)
+    # 패턴 2: 매월 중순 (11~20일)
+    mid_month = sum(1 for d in days_of_month if 11 <= d <= 20)
+    # 패턴 3: 매월 말 (21~31일)
+    late_month = sum(1 for d in days_of_month if 21 <= d <= 31)
+
+    total = len(days_of_month)
+
+    # 특정 일자 고정 패턴 감지 (예: 매월 5일)
+    from collections import Counter
+    day_counter = Counter(days_of_month)
+    most_common_day, day_freq = day_counter.most_common(1)[0]
+
+    if day_freq >= total * 0.5:  # 50% 이상 동일한 날
+        return {
+            'type': '고정일자',
+            'anchor_day': most_common_day,
+            'tolerance': 3,
+            'description': f'매월 {most_common_day}일경'
+        }
+    elif early_month >= total * 0.6:
+        return {
+            'type': '매월초',
+            'anchor_range': (3, 10),
+            'anchor_day': 5,
+            'tolerance': 4,
+            'description': '매월 초 (3~10일)'
+        }
+    elif mid_month >= total * 0.6:
+        return {
+            'type': '매월중순',
+            'anchor_range': (14, 20),
+            'anchor_day': 17,
+            'tolerance': 4,
+            'description': '매월 중순 (14~20일)'
+        }
+    elif late_month >= total * 0.6:
+        return {
+            'type': '매월말',
+            'anchor_range': (24, 28),
+            'anchor_day': 26,
+            'tolerance': 3,
+            'description': '매월 말 (24~28일)'
+        }
+
+    # 주기 기반 패턴 (격주, 월간 등)
+    intervals = [(order_dates[i+1] - order_dates[i]).days for i in range(len(order_dates)-1)]
+    avg_interval = np.mean(intervals)
+    std_interval = np.std(intervals)
+
+    if std_interval / avg_interval < 0.15:  # CV < 0.15 = 매우 규칙적
+        return {
+            'type': '고정주기',
+            'interval': int(round(avg_interval)),
+            'tolerance': max(2, int(std_interval)),
+            'description': f'매 {int(round(avg_interval))}±{int(std_interval)}일'
+        }
+
+    return None
+
+
+def generate_recurring_schedule(customer, product, analysis_data, pattern):
+    """안정 거래처의 고정 스케줄 생성"""
+
+    order_dates = analysis_data['주문일자리스트']
+    last_order = analysis_data['최근주문일']
+    avg_qty = analysis_data['평균수량(kg)']
+    std_qty = analysis_data['수량표준편차']
+    avg_interval = analysis_data['평균주기(일)']
+
+    year_2026_start = datetime(2026, 1, 1)
+    year_2026_end = datetime(2026, 12, 31)
+
+    predictions = []
+
+    if pattern['type'] in ['고정일자', '매월초', '매월중순', '매월말']:
+        # 월별 고정 패턴
+        anchor_day = pattern['anchor_day']
+        tolerance = pattern['tolerance']
+
+        # 2026년 12개월 모두 생성
+        for month in range(1, 13):
+            # 실제 발주일 결정 (anchor_day ± tolerance)
+            target_day = anchor_day
+
+            # 해당 월의 마지막 날 확인
+            if month == 2:
+                max_day = 29 if (2026 % 4 == 0) else 28
+            elif month in [4, 6, 9, 11]:
+                max_day = 30
+            else:
+                max_day = 31
+
+            target_day = min(target_day, max_day)
+
+            next_date = datetime(2026, month, target_day)
+
+            # 계절성 반영 수량
+            month_orders = [d for d in order_dates if d.month == month]
+            if month_orders:
+                month_avg_qty = np.mean([
+                    analysis_data['평균수량(kg)']  # 단순화: 월별 수량 사용
+                ])
+                predicted_qty = month_avg_qty
+            else:
+                predicted_qty = avg_qty
+
+            # 신뢰도 계산
+            confidence = analysis_data['주문규칙성점수']
+
+            # 미래로 갈수록 약간 감소 (단, 삭제하지 않음)
+            months_ahead = month
+            if months_ahead > 6:
+                confidence *= 0.95
+            elif months_ahead > 9:
+                confidence *= 0.90
+
+            predictions.append({
+                '날짜': next_date,
+                '거래처': customer,
+                '품목': product,
+                '수량': round(predicted_qty, 2),
+                '예측신뢰도': round(confidence, 1),
+                '거래유형': analysis_data['거래유형'],
+                '최근거래일': last_order,
+                '평균주기(일)': avg_interval,
+                '패턴': pattern['description']
+            })
+
+    elif pattern['type'] == '고정주기':
+        # 주기 기반 고정 스케줄
+        interval = pattern['interval']
+
+        # 첫 발주일 계산
+        next_date = last_order + timedelta(days=interval)
+
+        while next_date <= year_2026_end:
+            if next_date >= year_2026_start:
+                # 수량 예측
+                predicted_qty = avg_qty
+
+                # 신뢰도 계산
+                confidence = analysis_data['주문규칙성점수']
+                days_from_last = (next_date - last_order).days
+
+                if days_from_last > 180:
+                    confidence *= 0.90  # 감소하되 삭제하지 않음
+                elif days_from_last > 90:
+                    confidence *= 0.95
+
+                predictions.append({
+                    '날짜': next_date,
+                    '거래처': customer,
+                    '품목': product,
+                    '수량': round(predicted_qty, 2),
+                    '예측신뢰도': round(confidence, 1),
+                    '거래유형': analysis_data['거래유형'],
+                    '최근거래일': last_order,
+                    '평균주기(일)': avg_interval,
+                    '패턴': pattern['description']
+                })
+
+            next_date = next_date + timedelta(days=interval)
+
+    return predictions
+
+
 def generate_2026_forecast(customer, product, analysis_data):
-    """2026년 예측 생성"""
+    """2026년 예측 생성 (패턴 기반 + 확률적)"""
 
     avg_interval = analysis_data['평균주기(일)']
     last_order = analysis_data['최근주문일']
     avg_qty = analysis_data['평균수량(kg)']
     std_qty = analysis_data['수량표준편차']
+    regularity_score = analysis_data['주문규칙성점수']
+    transaction_type = analysis_data['거래유형']
 
     # 계절성 분석 (월별 패턴)
     order_dates = analysis_data['주문일자리스트']
@@ -173,7 +351,16 @@ def generate_2026_forecast(customer, product, analysis_data):
     monthly_weight = {m: monthly_pattern.get(m, 0) / total_orders
                      for m in range(1, 13)}
 
-    # 2026년 예측
+    # ===== 핵심: 안정 거래처 (규칙성 >= 80) → 고정 스케줄 =====
+    if transaction_type == '안정' and regularity_score >= 80:
+        pattern = detect_recurring_pattern(order_dates)
+
+        if pattern:
+            # 고정 반복 스케줄 생성
+            predictions = generate_recurring_schedule(customer, product, analysis_data, pattern)
+            return predictions
+
+    # ===== 기존 방식: 확률적 예측 (불규칙, 낮은 규칙성) =====
     predictions = []
 
     # 첫 예측일 = 최근 주문일 + 평균 주기
@@ -212,7 +399,8 @@ def generate_2026_forecast(customer, product, analysis_data):
                 '예측신뢰도': round(confidence, 1),
                 '거래유형': analysis_data['거래유형'],
                 '최근거래일': last_order,
-                '평균주기(일)': avg_interval
+                '평균주기(일)': avg_interval,
+                '패턴': '확률적 예측'
             })
 
         next_date = next_date + timedelta(days=int(avg_interval))
